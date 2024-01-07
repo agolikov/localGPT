@@ -3,6 +3,7 @@ import logging
 import click
 import torch
 import utils
+import csv
 from langchain.chains import RetrievalQA
 from langchain.embeddings import HuggingFaceInstructEmbeddings
 from langchain.llms import HuggingFacePipeline
@@ -21,6 +22,7 @@ from transformers import (
 )
 
 from load_models import (
+    load_quantized_model_awq,
     load_quantized_model_gguf_ggml,
     load_quantized_model_qptq,
     load_full_model,
@@ -64,6 +66,8 @@ def load_model(device_type, model_id, model_basename=None, LOGGING=logging):
             return llm
         elif ".ggml" in model_basename.lower():
             model, tokenizer = load_quantized_model_gguf_ggml(model_id, model_basename, device_type, LOGGING)
+        elif ".awq" in model_basename.lower():
+            model, tokenizer = load_quantized_model_awq(model_id, LOGGING)
         else:
             model, tokenizer = load_quantized_model_qptq(model_id, model_basename, device_type, LOGGING)
     else:
@@ -213,6 +217,7 @@ def retrieval_qa_pipline(device_type, use_history, promptTemplate_type="llama"):
     is_flag=True,
     help="whether to save Q&A pairs to a CSV file (Default is False)",
 )
+
 def main(device_type, show_sources, use_history, model_type, save_qa):
     """
     Implements the main information retrieval task for a localGPT.
@@ -243,34 +248,42 @@ def main(device_type, show_sources, use_history, model_type, save_qa):
         os.mkdir(MODELS_PATH)
 
     qa = retrieval_qa_pipline(device_type, use_history, promptTemplate_type=model_type)
-    # Interactive questions and answers
-    while True:
-        query = input("\nEnter a query: ")
-        if query == "exit":
-            break
-        # Get the answer from the chain
-        prompt_end = ". You are responding to highly technical customers. The total response length must be no more than 1000 words."
-        res = qa(query + prompt_end)
-        answer, docs = res["result"], res["source_documents"]
 
-        # Print the result
-        print("\n\n> Question:")
-        print(query)
-        print("\n> Answer:")
-        print(answer)
+    input_file = "public_data/hidden_test_queries.csv"
+    output_file = "public_data/final_solution.csv"
 
-        if show_sources:  # this is a flag that you can set to disable showing answers.
-            # # Print the relevant sources used for the answer
-            print("----------------------------------SOURCE DOCUMENTS---------------------------")
-            for document in docs:
-                print("\n> " + document.metadata["source"] + ":")
-                print(document.page_content)
-            print("----------------------------------SOURCE DOCUMENTS---------------------------")
+    prompt_end = ". You must response directly, without unnecessary words. Response is 1000 words max."
 
-        # Log the Q&A to CSV only if save_qa is True
-        if save_qa:
-            utils.log_to_csv(query, answer)
+    inputs = read_csv_file(input_file)
+    i = 0
+    with open(output_file, 'w', newline='') as outfile:
+        
+        outfile.write("Query,Response\n")
+        for input in inputs:
+            i+=1
+            if i%3==0:
+                #recreate pipeline for every 3 queries
+                qa = retrieval_qa_pipline(device_type, use_history, promptTemplate_type=model_type)
 
+            prompt = input[0] + prompt_end
+            output = qa(prompt)
+            answer, docs = output["result"], output["source_documents"]
+            answer = answer.replace('\n',' ').replace(',','.').strip()
+            outfile.write(input[0] + ",\"" + answer  + "\"\n")
+            print("\n\n> Prompt:")
+            print(input[0])
+            print("\n> Output:")
+            print(answer)
+
+def read_csv_file(file_path):
+    data = []
+    with open(file_path, 'r') as csvfile:
+        reader = csv.reader(csvfile)
+        next(reader, None)
+        for row in reader:
+            if row != "Query":
+                data.append(row)
+    return data
 
 if __name__ == "__main__":
     logging.basicConfig(

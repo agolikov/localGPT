@@ -6,13 +6,17 @@ from chromadb.config import Settings
 # https://python.langchain.com/en/latest/modules/indexes/document_loaders/examples/excel.html?highlight=xlsx#microsoft-excel
 from langchain.document_loaders import CSVLoader, PDFMinerLoader, TextLoader, UnstructuredExcelLoader, Docx2txtLoader
 from langchain.document_loaders import UnstructuredFileLoader, UnstructuredMarkdownLoader
-
+from langchain.document_loaders import UnstructuredPowerPointLoader
+from langchain.document_loaders import PyPDFLoader
+from langchain.document_loaders.image import UnstructuredImageLoader
 
 # load_dotenv()
 ROOT_DIRECTORY = os.path.dirname(os.path.realpath(__file__))
 
 # Define the folder for storing database
 SOURCE_DIRECTORY = f"{ROOT_DIRECTORY}/SOURCE_DOCUMENTS"
+
+LINKS_FILE = f"SOURCE_DOCUMENTS/links.txt"
 
 PERSIST_DIRECTORY = f"{ROOT_DIRECTORY}/DB"
 
@@ -40,19 +44,22 @@ N_BATCH = 512
 # N_GPU_LAYERS = 20
 # N_BATCH = 512
 
-
 # https://python.langchain.com/en/latest/_modules/langchain/document_loaders/excel.html#UnstructuredExcelLoader
 DOCUMENT_MAP = {
     ".txt": TextLoader,
     ".md": UnstructuredMarkdownLoader,
     ".py": TextLoader,
-    # ".pdf": PDFMinerLoader,
-    ".pdf": UnstructuredFileLoader,
-    ".csv": CSVLoader,
+    ".pdf": PyPDFLoader,
+    ".png": UnstructuredImageLoader,
+    ".jpg": UnstructuredImageLoader,
+    #".pdf": UnstructuredFileLoader,
+    #".csv": CSVLoader,
     ".xls": UnstructuredExcelLoader,
     ".xlsx": UnstructuredExcelLoader,
     ".docx": Docx2txtLoader,
     ".doc": Docx2txtLoader,
+    "pptx": UnstructuredPowerPointLoader,
+    "ppt": UnstructuredPowerPointLoader
 }
 
 # Default Instructor Model
@@ -95,17 +102,17 @@ EMBEDDING_MODEL_NAME = "hkunlp/instructor-large"  # Uses 1.5 GB of VRAM (High Ac
 #### (FOR GGUF MODELS)
 ####
 
-# MODEL_ID = "TheBloke/Llama-2-13b-Chat-GGUF"
-# MODEL_BASENAME = "llama-2-13b-chat.Q4_K_M.gguf"
+MODEL_ID = "TheBloke/Llama-2-13b-Chat-GGUF"
+MODEL_BASENAME = "llama-2-13b-chat.Q4_K_M.gguf"
 
-MODEL_ID = "TheBloke/Llama-2-7b-Chat-GGUF"
-MODEL_BASENAME = "llama-2-7b-chat.Q4_K_M.gguf"
+#MODEL_ID = "TheBloke/Llama-2-7b-Chat-GGUF"
+#MODEL_BASENAME = "llama-2-7b-chat.Q4_K_M.gguf"
 
-# MODEL_ID = "TheBloke/Mistral-7B-Instruct-v0.1-GGUF"
-# MODEL_BASENAME = "mistral-7b-instruct-v0.1.Q8_0.gguf"
+#MODEL_ID = "TheBloke/Mistral-7B-Instruct-v0.1-GGUF"
+#MODEL_BASENAME = "mistral-7b-instruct-v0.1.Q8_0.gguf"
 
-# MODEL_ID = "TheBloke/Llama-2-70b-Chat-GGUF"
-# MODEL_BASENAME = "llama-2-70b-chat.Q4_K_M.gguf"
+#MODEL_ID = "TheBloke/Llama-2-70b-Chat-GGUF"
+#MODEL_BASENAME = "llama-2-70b-chat.Q4_K_M.gguf"
 
 ####
 #### (FOR HF MODELS)
@@ -176,3 +183,11 @@ MODEL_BASENAME = "llama-2-7b-chat.Q4_K_M.gguf"
 # MODEL_BASENAME = "wizard-vicuna-13B.ggmlv3.q2_K.bin"
 # MODEL_ID = "TheBloke/orca_mini_3B-GGML"
 # MODEL_BASENAME = "orca-mini-3b.ggmlv3.q4_0.bin"
+
+####
+#### (FOR AWQ QUANTIZED) Select a llm model based on your GPU and VRAM GB. Does not include Embedding Models VRAM usage.
+### (*** MODEL_BASENAME is not actually used but have to contain .awq so the correct model loading is used ***)
+### (*** Compute capability 7.5 (sm75) and CUDA Toolkit 11.8+ are required ***)
+####
+# MODEL_ID = "TheBloke/Llama-2-7B-Chat-AWQ"
+# MODEL_BASENAME = "model.safetensors.awq"

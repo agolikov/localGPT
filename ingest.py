@@ -1,13 +1,17 @@
 import logging
 import os
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
-
 import click
 import torch
+import requests
 from langchain.docstore.document import Document
 from langchain.embeddings import HuggingFaceInstructEmbeddings
 from langchain.text_splitter import Language, RecursiveCharacterTextSplitter
 from langchain.vectorstores import Chroma
+from langchain.document_loaders import AsyncHtmlLoader, UnstructuredURLLoader, WebBaseLoader
+from langchain.document_loaders import BSHTMLLoader
+from langchain.document_loaders import WikipediaLoader
+from langchain.document_loaders import UnstructuredHTMLLoader
 
 from constants import (
     CHROMA_SETTINGS,
@@ -15,30 +19,33 @@ from constants import (
     EMBEDDING_MODEL_NAME,
     INGEST_THREADS,
     PERSIST_DIRECTORY,
-    SOURCE_DIRECTORY,
+    SOURCE_DIRECTORY, LINKS_FILE,
 )
 
+
 def file_log(logentry):
-   file1 = open("file_ingest.log","a")
-   file1.write(logentry + "\n")
-   file1.close()
-   print(logentry + "\n")
+    file1 = open("file_ingest.log", "a")
+    file1.write(logentry + "\n")
+    file1.close()
+    print(logentry + "\n")
+
 
 def load_single_document(file_path: str) -> Document:
     # Loads a single document from a file path
     try:
-       file_extension = os.path.splitext(file_path)[1]
-       loader_class = DOCUMENT_MAP.get(file_extension)
-       if loader_class:
-           file_log(file_path + ' loaded.')
-           loader = loader_class(file_path)
-       else:
-           file_log(file_path + ' document type is undefined.')
-           raise ValueError("Document type is undefined")
-       return loader.load()[0]
+        file_extension = os.path.splitext(file_path)[1]
+        loader_class = DOCUMENT_MAP.get(file_extension)
+        if loader_class:
+            file_log(file_path + ' loaded.')
+            loader = loader_class(file_path)
+        else:
+            file_log(file_path + ' document type is undefined.')
+            raise ValueError("Document type is undefined")
+        return loader.load()[0]
     except Exception as ex:
-       file_log('%s loading error: \n%s' % (file_path, ex))
-       return None 
+        file_log('%s loading error: \n%s' % (file_path, ex))
+        return None
+
 
 def load_document_batch(filepaths):
     logging.info("Loading document batch")
@@ -48,12 +55,12 @@ def load_document_batch(filepaths):
         futures = [exe.submit(load_single_document, name) for name in filepaths]
         # collect data
         if futures is None:
-           file_log(name + ' failed to submit')
-           return None
+            file_log(name + ' failed to submit')
+            return None
         else:
-           data_list = [future.result() for future in futures]
-           # return data and file paths
-           return (data_list, filepaths)
+            data_list = [future.result() for future in futures]
+            # return data and file paths
+            return (data_list, filepaths)
 
 
 def load_documents(source_dir: str) -> list[Document]:
@@ -76,15 +83,15 @@ def load_documents(source_dir: str) -> list[Document]:
         # split the load operations into chunks
         for i in range(0, len(paths), chunksize):
             # select a chunk of filenames
-            filepaths = paths[i : (i + chunksize)]
+            filepaths = paths[i: (i + chunksize)]
             # submit the task
             try:
-               future = executor.submit(load_document_batch, filepaths)
+                future = executor.submit(load_document_batch, filepaths)
             except Exception as ex:
-               file_log('executor task failed: %s' % (ex))
-               future = None
+                file_log('executor task failed: %s' % (ex))
+                future = None
             if future is not None:
-               futures.append(future)
+                futures.append(future)
         # process all results
         for future in as_completed(futures):
             # open the file and load the data
@@ -93,7 +100,7 @@ def load_documents(source_dir: str) -> list[Document]:
                 docs.extend(contents)
             except Exception as ex:
                 file_log('Exception: %s' % (ex))
-                
+
     return docs
 
 
@@ -102,12 +109,59 @@ def split_documents(documents: list[Document]) -> tuple[list[Document], list[Doc
     text_docs, python_docs = [], []
     for doc in documents:
         if doc is not None:
-           file_extension = os.path.splitext(doc.metadata["source"])[1]
-           if file_extension == ".py":
-               python_docs.append(doc)
-           else:
-               text_docs.append(doc)
+            file_extension = os.path.splitext(doc.metadata["source"])[1]
+            if file_extension == ".py":
+                python_docs.append(doc)
+            else:
+                text_docs.append(doc)
     return text_docs, python_docs
+
+def download_html_pages():
+    with open(LINKS_FILE, 'r') as file:
+        urls = file.readlines()
+
+    pages_path = "public_data/pages"
+    if not os.path.exists(pages_path):
+        os.makedirs(pages_path)
+
+    for i in range(0, len(urls)):
+        try:
+            url = urls[i].rstrip()
+            output_file = f"{pages_path}/page{i}.html"
+            response = requests.get(url)
+
+            if response.status_code == 200:
+                with open(output_file, 'w', encoding='utf-8') as file:
+                    file.write(response.text)
+                print(f"HTML page downloaded and saved to {output_file}")
+            else:
+                print(f"Failed to download HTML page. Status code: {response.status_code}")
+
+        except:
+            print("An exception occurred")
+        finally:
+            print("Downloading finished.")
+
+def load_wikipedia_docs() -> list[Document]:
+    # Load content from Wikipedia using WikipediaLoader
+    loader = WikipediaLoader("TopCoder")
+    wikipedia_docs = loader.load()
+    return wikipedia_docs
+
+
+def load_paged_docs() -> list[Document]:
+    docslist = []
+
+    for root, _, files in os.walk('public_data/pages'):
+        for file_name in files:
+            print('Importing: ' + file_name)
+            file_extension = os.path.splitext(file_name)[1]
+            source_file_path = os.path.join(root, file_name)
+            if file_extension == '.html':
+                loader = UnstructuredHTMLLoader(source_file_path)
+                docs = loader.load()
+                docslist.extend(docs)
+    return docslist
 
 
 @click.command()
@@ -142,7 +196,15 @@ def split_documents(documents: list[Document]) -> tuple[list[Document], list[Doc
 def main(device_type):
     # Load documents and split in chunks
     logging.info(f"Loading documents from {SOURCE_DIRECTORY}")
+    download_html_pages()
+
+    paged_docs = load_paged_docs()
+    wikipedia_docs = load_wikipedia_docs()
+
     documents = load_documents(SOURCE_DIRECTORY)
+    documents.extend(wikipedia_docs)
+    documents.extend(paged_docs)
+
     text_documents, python_documents = split_documents(documents)
     text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
     python_splitter = RecursiveCharacterTextSplitter.from_language(
@@ -159,7 +221,7 @@ def main(device_type):
         model_kwargs={"device": device_type},
     )
     # change the embedding type here if you are running into issues.
-    # These are much smaller embeddings and will work for most appications
+    # These are much smaller embeddings and will work for most applications
     # If you use HuggingFaceEmbeddings, make sure to also use the same in the
     # run_localGPT.py file.
 
@@ -171,7 +233,7 @@ def main(device_type):
         persist_directory=PERSIST_DIRECTORY,
         client_settings=CHROMA_SETTINGS,
     )
-   
+
 
 
 if __name__ == "__main__":
